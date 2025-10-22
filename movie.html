@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Recommender</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles to handle dark mode and other UI tweaks */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .text-gradient {
+            background-image: linear-gradient(45deg, #10b981, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .loader {
+            border-top-color: #34d399;
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
+        }
+        @-webkit-keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex items-center justify-center min-h-screen p-4">
+
+    <!-- Main container for the app -->
+    <div class="bg-gray-800 p-8 md:p-12 rounded-2xl shadow-2xl max-w-3xl w-full">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-center mb-4 text-gradient">Movie Recommender</h1>
+        <p class="text-center text-gray-400 mb-8">
+            Enter a movie you love, and let's find some similar ones for you!
+        </p>
+
+        <!-- Input and button section -->
+        <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
+            <input type="text" id="movie-input" placeholder="e.g., The Matrix"
+                   class="flex-grow w-full sm:w-auto p-3 text-lg bg-gray-700 text-gray-200 border border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors">
+            <button id="recommend-button"
+                    class="w-full sm:w-auto px-6 py-3 text-lg font-semibold text-gray-900 bg-emerald-400 rounded-xl shadow-md hover:bg-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all">
+                Get Recommendations
+            </button>
+        </div>
+
+        <!-- Loading spinner and results container -->
+        <div id="results-container" class="space-y-6">
+            <!-- Recommendations will be dynamically inserted here -->
+        </div>
+
+        <!-- Loading spinner section -->
+        <div id="loading-spinner" class="flex justify-center items-center h-24 hidden">
+            <div class="loader ease-linear rounded-full border-8 border-t-8 border-gray-600 h-16 w-16"></div>
+        </div>
+    </div>
+
+    <script>
+        // Get references to DOM elements
+        const movieInput = document.getElementById('movie-input');
+        const recommendButton = document.getElementById('recommend-button');
+        const resultsContainer = document.getElementById('results-container');
+        const loadingSpinner = document.getElementById('loading-spinner');
+
+        // Function to create and display a movie recommendation card
+        function createMovieCard(title, reason) {
+            const card = document.createElement('div');
+            card.className = "bg-gray-700 p-6 rounded-xl shadow-lg transform transition-all hover:scale-[1.01] hover:bg-gray-600";
+            card.innerHTML = `
+                <h3 class="text-2xl font-bold text-emerald-400 mb-2">${title}</h3>
+                <p class="text-gray-300">${reason}</p>
+            `;
+            return card;
+        }
+
+        // Function to show an error message
+        function showError(message) {
+            resultsContainer.innerHTML = `
+                <div class="p-6 rounded-xl bg-red-600/30 text-red-300 border border-red-500">
+                    <p class="text-center">${message}</p>
+                </div>
+            `;
+        }
+
+        // Main function to fetch movie recommendations from the Gemini API
+        async function getMovieRecommendations(movieTitle) {
+            // Clear previous results and show the loading spinner
+            resultsContainer.innerHTML = '';
+            loadingSpinner.classList.remove('hidden');
+
+            try {
+                // Construct the prompt for the LLM
+                const prompt = `Given the movie '${movieTitle}', recommend 5 movies that are similar in genre, theme, or style. For each movie, provide the movie title and a short, one-sentence reason for the recommendation.`;
+
+                // Define the structured response schema to ensure JSON output
+                const payload = {
+                    contents: [{ role: "user", parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: "ARRAY",
+                            items: {
+                                type: "OBJECT",
+                                properties: {
+                                    "title": { "type": "STRING" },
+                                    "reason": { "type": "STRING" }
+                                }
+                            }
+                        }
+                    }
+                };
+                
+                // Set the API key and URL
+                const apiKey = "AIzaSyA0NMs-mOPuGVNCFwog92HDxGmJ-bHJlOU";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+                
+                // Fetch the recommendations from the Gemini API
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                // Check if the API response is successful
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                // Extract the JSON data from the response
+                const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) {
+                    throw new Error("No recommendations found. Please try a different movie.");
+                }
+
+                // Parse the JSON string into a JavaScript array
+                const recommendations = JSON.parse(text);
+
+                // Check if the recommendations array is not empty
+                if (recommendations.length > 0) {
+                    recommendations.forEach(rec => {
+                        const card = createMovieCard(rec.title, rec.reason);
+                        resultsContainer.appendChild(card);
+                    });
+                } else {
+                    showError("No recommendations found. Try a different movie.");
+                }
+
+            } catch (error) {
+                console.error("Failed to get recommendations:", error);
+                showError("Something went wrong. Please try again.");
+            } finally {
+                // Hide the loading spinner after the process is complete
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+
+        // Event listener for the button click
+        recommendButton.addEventListener('click', () => {
+            const movieTitle = movieInput.value.trim();
+            if (movieTitle) {
+                getMovieRecommendations(movieTitle);
+            } else {
+                showError("Please enter a movie title.");
+            }
+        });
+
+        // Event listener for the Enter key press in the input field
+        movieInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                recommendButton.click();
+            }
+        });
+    </script>
+</body>
+</html>
